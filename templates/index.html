@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+        <html>
+        <head><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+            <title>Executive Engine</title>
+            <style>
+                body { background-color: #121212; color: #e0e0e0; font-family: monospace; margin: 0; padding: 10px; height: auto; min-height: 100vh; display: flex; flex-direction: column; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch;}
+                h2, h3 { margin: 5px 0; color: #4CAF50; }
+                .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 10px; }
+                .controls button { background: #333; color: #fff; border: 1px solid #555; padding: 5px 15px; cursor: pointer; border-radius: 3px; font-family: monospace; }
+                .controls button:hover { background: #444; }
+                .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 10px; flex: 1; overflow: hidden; }
+                .panel { background: #1e1e1e; border: 1px solid #333; border-radius: 5px; padding: 10px; display: flex; flex-direction: column; overflow: hidden; }
+                .span-2 { grid-column: span 2; }
+                .table-container { overflow-y: auto; flex: 1; }
+                table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+                th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #333; }
+                th { position: sticky; top: 0; background: #2c2c2c; color: #bbb; }
+                .status-message { font-size: 0.9em; margin-top: 5px; }
+                .success { color: #4CAF50; }
+                .error { color: #f44336; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2>🚀 Executive Engine</h2>
+                <div class="controls">
+                    <span id="balance-display" style="font-size: 1.2em; font-weight: bold; margin-right: 20px;">Balance: $0.00</span>
+                    <button onclick="testConnection()">Test Connection</button>
+                    <button onclick="fetchData()">Manual Refresh</button>
+                    <div id="conn-status" class="status-message"></div>
+                </div>
+            </div>
+
+            <div class="grid">
+                <div class="panel">
+                    <h3>🌐 Market Oracle</h3>
+                    <div class="table-container">
+                        <table id="market-table">
+                            <thead><tr><th>Symbol</th><th>Live Price</th><th>Closed Price</th><th>SMA</th><th>ATR %</th><th>Momentum</th><th>RSI</th><th>Hunting</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3>📊 Live Positions</h3>
+                    <div class="table-container">
+                        <table id="positions-table">
+                            <thead><tr><th>Strategy</th><th>Symbol</th><th>Status</th><th>Qty</th><th>Entry</th><th>TP</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="panel span-2" style="max-height: 250px;">
+                    <h3>📜 Live Journals</h3>
+                    <div class="table-container">
+                        <table id="journals-table">
+                            <thead><tr><th>Time</th><th>Strategy</th><th>Level</th><th>Message</th></tr></thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                function formatUSD(num) { return '$' + parseFloat(num).toFixed(2); }
+                
+                async function testConnection() {
+                    const statusDiv = document.getElementById('conn-status');
+                    statusDiv.innerHTML = '<span style="color: #aaa;">Testing...</span>';
+                    try {
+                        const res = await fetch('/api/test_connection');
+                        const json = await res.json();
+                        if (json.status === 'success') {
+                            statusDiv.innerHTML = `<span class="success">✓ ${json.message}</span>`;
+                        } else {
+                            statusDiv.innerHTML = `<span class="error">✗ ${json.message}</span>`;
+                        }
+                    } catch (e) {
+                        statusDiv.innerHTML = `<span class="error">✗ Network Error</span>`;
+                    }
+                    setTimeout(() => statusDiv.innerHTML = '', 5000);
+                }
+
+                async function fetchData() {
+                    try {
+                        const res = await fetch('/api/data');
+                        const json = await res.json();
+                        if (json.status !== 'success') {
+                            console.error("Data error:", json.message);
+                            return;
+                        }
+                        const data = json.data;
+
+                        document.getElementById('balance-display').innerText = 'Balance: ' + formatUSD(data.balance);
+
+                        document.querySelector('#market-table tbody').innerHTML = data.market.map(row => 
+                            `<tr><td>${row.symbol}</td><td>${row.price}</td><td>${row.closed_price}</td><td>${row.sma}</td><td>${row.atr_pct}%</td><td>${row.momentum_ignition}</td><td>${row.rsi}</td>
+                            <td style="color: ${row.is_hunting ? '#4CAF50' : '#bbb'}">${row.is_hunting}</td></tr>`
+                        ).join('');
+
+                        document.querySelector('#positions-table tbody').innerHTML = data.positions.map(row => 
+                            `<tr><td>${row.strategy_id}</td><td>${row.symbol}</td>
+                            <td style="color: ${row.status === 'OPEN' ? '#4CAF50' : '#bbb'}">${row.status}</td>
+                            <td>${row.qty}</td><td>${row.entry_price}</td><td>${row.tp_price}</td></tr>`
+                        ).join('');
+
+                        document.querySelector('#journals-table tbody').innerHTML = data.journals.map(row => 
+                            `<tr><td>${row.updated_time}</td><td>${row.strategy_id}</td>
+                            <td style="color: ${row.log_level === 'WARNING' ? '#ff9800' : '#bbb'}">${row.log_level}</td>
+                            <td>${row.message}</td></tr>`
+                        ).join('');
+
+                    } catch (e) {
+                        console.error("Failed to fetch data", e);
+                    }
+                }
+
+                setInterval(fetchData, 5000);
+                fetchData();
+            </script>
+        </body>
+        </html>
