@@ -43,7 +43,8 @@ class ExecutiveEngineApp:
                 self.treasury.reconciliation_light = "RED"
         else:
             self.db_log.environment = "PAPER"
-            self.treasury = TreasuryManager(self.db_log, initial_capital=10009.58, environment=self.db_log.environment)
+            paper_capital = self._get_latest_paper_balance()
+            self.treasury = TreasuryManager(self.db_log, initial_capital=paper_capital, environment=self.db_log.environment)
         
         self._setup_routes()
         self._setup_scheduler()
@@ -66,6 +67,21 @@ class ExecutiveEngineApp:
             host=os.getenv('DB_HOST'),
             port=os.getenv('DB_PORT', '5432')
         )
+        
+    def _get_latest_paper_balance(self):
+        """Fetches the last known paper balance, or defaults to 10k if empty."""
+        try:
+            conn = self.get_db_connection()
+            cur = conn.cursor()
+            cur.execute("SELECT total_capital FROM treasury_state WHERE environment = 'PAPER' ORDER BY updated_time DESC LIMIT 1;")
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+            if row and row[0] is not None:
+                return float(row[0])
+        except Exception as e:
+            print(f"Warning: Failed to fetch historical paper balance. {e}")
+        return 10000.00 # Base starting capital if no history exists
 
     def _engine_tick(self):
         """The master loop: Oracle scans the market, Execution Engine makes the trades."""
@@ -100,7 +116,7 @@ class ExecutiveEngineApp:
                 kraken_client = KrakenPrivateClient()
                 wallet = kraken_client.get_live_usd_balance()
                 
-                if live_balance is not None:
+                if wallet is not None:
                     live_usd = wallet["USD"]
                     self.treasury = TreasuryManager(self.db_log, initial_capital=live_usd, environment=self.db_log.environment)
                     self.treasury.verify_reality(live_usd)
@@ -112,8 +128,9 @@ class ExecutiveEngineApp:
             else:
                 print("📝 Switching to PAPER TRADING...")
                 self.db_log.environment = "PAPER"
-                self.treasury = TreasuryManager(self.db_log, initial_capital=10009.58, environment=self.db_log.environment)
-                self.db_log.info("TREASURY", "PAPER TRADING ENGAGED.  Synced Paper Capital:  ${initial_capital}")
+                paper_capital = self._get_latest_paper_balance()
+                self.treasury = TreasuryManager(self.db_log, initial_capital=paper_capital, environment=self.db_log.environment)
+                self.db_log.info("TREASURY", f"PAPER TRADING ENGAGED.  Synced Paper Capital:  ${paper_capital}")
                 
             return jsonify({"status": "success", "live_mode": self.LIVE_MODE})
             
@@ -152,6 +169,22 @@ class ExecutiveEngineApp:
                         SET status = 'WAITING', qty = 0, entry_price = 0, sl_price = 0, tp_price = 0, initial_margin_usd = 0, last_updated = CURRENT_TIMESTAMP
                         WHERE strategy_id = %s AND symbol = %s AND environment = %s;
                     """, (strat, sym, env_str))
+                    
+                    # --- Apply PnL to Treasury on override ---
+                    cur.execute("SELECT total_capital, reserve, allocations, play_name FROM treasury_state WHERE environment = %s ORDER BY updated_time DESC LIMIT 1;", (ENV_STR,))
+                    t_state = cur.fetchone()
+                    if t_state:
+                        import json
+                        new_capital = round(float(t_state['total_capital']) + pnl, 2)
+                        new_reserve = round(float(t_state['reserve']) + pnl, 2)
+                        allocs = t_state['allocations'] if isinstance(t_state['allocations'], str) else json.dumps(t_state['allocations'])
+                        
+                        cur.execute("""
+                            INSERT INTO treasury_state (environment, play_name, total_capital, reserve, allocations)
+                            VALUES (%s, %s, %s, %s, %s)
+                        """, (env_str, t_state['play_name'], new_capital, new_reserve, allocations))
+                        
+                    
                     conn.commit()
                     
                     # 4. Log the override to the dashboard
@@ -165,6 +198,23 @@ class ExecutiveEngineApp:
                 import traceback
                 traceback.print_exc()
                 return jsonify({"status": "error", "message": str(e)})
+                
+        @self.app.route('/api/change_play', methods=['POST'])
+        def change_play():
+            from flask import request
+            data = request.json
+            new_play = data.get('play_name')
+            
+            if not new_play:
+                return jsonify({"status": "error", "message": "No play_name provided."})
+                
+            success = self.treasury.execute_playbook(new_play)
+            
+            if success:
+                self.db_log.info("EXECUTIVE", f"Treasury Shift: Playbook changed to {new_play.upper()}")
+                return jsonify({"status": "success", "message": f"Strategy shifted to {new_play}"})
+            else:
+                return jsonify({"status": "error", "message": "Invalid playbook name."})
 
         @self.app.route('/api/data')
         def get_data():

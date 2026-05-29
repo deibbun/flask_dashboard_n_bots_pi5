@@ -132,6 +132,19 @@ class ExecutionEngine:
                         WHERE strategy_id = %s AND symbol = %s AND environment = %s;
                     """
                     cur.execute(update_sql, (strat, sym, self.environment))
+                    t_state = cur.fetchone()
+                    if t_state:
+                        new_capital = round(float(t_state['total_capital']) + pnl, 2)
+                        new_reserve = round(float(t_state['reserve']) + pnl, 2)
+                        
+                        # Handle JSON string formatting
+                        allocs = t_state['allocations'] if isinstance(t_state['allocations'], str) else json.dumps(t_state['allocations'])
+                        
+                        cur.execute("""
+                            INSERT INTO treasury_state (environment, play_name, total_capital, reserve, allocations)
+                            VALUES (%s, %s, %s, %s, %s);
+                        """, (self.environment, t_state['play_name'], new_capital, new_reserve, allocs))
+                    
                     conn.commit()
                     
                     log_level = "SUCCESS" if pnl > 0 else "WARNING"

@@ -33,6 +33,14 @@
         <div class="controls">
             <span id="balance-display" style="font-size: 1.2em; font-weight: bold; margin-right: 20px;">Balance: $0.00</span>
             
+			<select id="play-selector" onchange="changePlay()" style="background: #333; color: #fff; border: 1px solid #555; padding: 5px; border-radius: 3px; font-family: monospace; margin-right: 10px;">
+                <option value="" disabled selected>Select Treasury Play...</option>
+                <option value="normal_split">Normal Split (Balanced)</option>
+                <option value="sol_breakout">SOL Breakout (Heavy SOL)</option>
+                <option value="eth_run">ETH Run (Heavy ETH)</option>
+                <option value="defensive">Defensive (Lockdown)</option>
+            </select>
+			
             <button id="mode-toggle" onclick="toggleMode()">Loading Mode...</button>
             <button onclick="testConnection()">Test Connection</button>
             <button onclick="fetchData()">Manual Refresh</button>
@@ -62,6 +70,26 @@
             </div>
         </div>
 
+        <div class="panel span-2" style="max-height: 200px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>🏦 Treasury & Strategy Allocations</h3>
+                <div id="treasury-stats" style="font-size: 0.9em; font-family: monospace;">
+                    </div>
+            </div>
+            <div class="table-container">
+                <table id="treasury-table">
+                    <thead>
+                        <tr>
+                            <th>Playbook Strategy</th>
+                            <th>Allocated Capital ($)</th>
+                            <th>Portfolio Share (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
         <div class="panel span-2" style="max-height: 250px;">
             <h3>📜 Live Journals</h3>
             <div class="table-container">
@@ -86,6 +114,37 @@
             } catch (e) {
                 console.error("Mode toggle failed", e);
                 btn.innerText = 'Error';
+            }
+        }
+		
+		async function changePlay() {
+            const playSelector = document.getElementById('play-selector');
+            const playName = playSelector.value;
+            
+            if (!playName) return;
+
+            if(confirm(`🏦 TREASURY OVERRIDE:\n\nAre you sure you want to shift capital allocation to the '${playName.toUpperCase()}' playbook?`)) {
+                try {
+                    const res = await fetch('/api/change_play', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ play_name: playName })
+                    });
+                    const data = await res.json();
+                    
+                    if (data.status === 'success') {
+                        console.log("Playbook Shift Complete:", data);
+                        fetchData(); // Instantly refresh the UI to show new logs
+                    } else {
+                        alert("Error: " + data.message);
+                    }
+                } catch (e) {
+                    console.error("Failed to shift playbook", e);
+                    alert("Failed to reach the Executive Engine.");
+                }
+            } else {
+                // If the user clicks "Cancel" on the confirmation box, reset the dropdown
+                playSelector.value = ""; 
             }
         }
 
@@ -187,6 +246,45 @@
                     <td>${row.qty}</td><td>${row.entry_price}</td><td>${row.tp_price}</td>
                     <td>${row.status === 'OPEN' ? `<button class="panic-btn" onclick="manualOverride('${row.strategy_id}', '${row.symbol}')">CLOSE</button>` : '-'}</td></tr>`
                 ).join('');
+				
+				document.querySelector('#positions-table tbody').innerHTML = data.positions.map(row => 
+                    `<tr><td>${row.strategy_id}</td><td>${row.symbol}</td>
+                    <td style="color: ${row.status === 'OPEN' ? '#4CAF50' : '#bbb'}">${row.status}</td>
+                    <td>${row.qty}</td><td>${row.entry_price}</td><td>${row.tp_price}</td>
+                    <td>${row.status === 'OPEN' ? `<button class="panic-btn" onclick="manualOverride('${row.strategy_id}', '${row.symbol}')">CLOSE</button>` : '-'}</td></tr>`
+                ).join('');
+
+                // --- NEW: Update Treasury Panel ---
+                if (data.treasury) {
+                    const total = parseFloat(data.treasury.total_capital);
+                    const reserve = parseFloat(data.treasury.reserve);
+                    
+                    // Color code the ultimate safety switch light
+                    let lightColor = '#ff9800'; // Yellow
+                    if (data.treasury.reconciliation_light === 'GREEN') lightColor = '#4CAF50';
+                    if (data.treasury.reconciliation_light === 'RED') lightColor = '#f44336';
+
+                    document.getElementById('treasury-stats').innerHTML = `
+                        <span style="color: #bbb;">Safety Check:</span> <span style="color: ${lightColor}; font-weight: bold; margin-right: 15px;">${data.treasury.reconciliation_light}</span>
+                        <span style="color: #bbb;">Cash Reserve:</span> <span style="color: #4CAF50; font-weight: bold;">${formatUSD(reserve)}</span>
+                    `;
+
+                    // Loop through the allocations dictionary to build the table
+                    let treasuryHtml = '';
+                    const allocs = data.treasury.allocations;
+                    for (const [strat, amount] of Object.entries(allocs)) {
+                        const amountFloat = parseFloat(amount);
+                        const pct = total > 0 ? ((amountFloat / total) * 100).toFixed(1) : 0;
+                        
+                        treasuryHtml += `<tr>
+                            <td style="font-weight: bold; color: #e0e0e0;">${strat.toUpperCase()}</td>
+                            <td style="color: #4CAF50;">${formatUSD(amountFloat)}</td>
+                            <td style="color: #bbb;">${pct}%</td>
+                        </tr>`;
+                    }
+                    document.querySelector('#treasury-table tbody').innerHTML = treasuryHtml;
+                }
+                // -----------------------------------
 
                 document.querySelector('#journals-table tbody').innerHTML = data.journals.map(row => 
                     `<tr><td>${row.updated_time}</td><td>${row.strategy_id}</td>
