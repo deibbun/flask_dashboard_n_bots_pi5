@@ -38,6 +38,7 @@ def bootstrap_database():
             CREATE TABLE IF NOT EXISTS positions (
                 symbol VARCHAR(20),
                 strategy_id VARCHAR(50),
+                environment VARCHAR(10) NOT NULL,
                 status VARCHAR(20) DEFAULT 'WAITING',
                 qty NUMERIC DEFAULT 0.0,
                 entry_price NUMERIC DEFAULT 0.0,
@@ -45,22 +46,27 @@ def bootstrap_database():
                 sl_price NUMERIC DEFAULT 0.0,
                 tp_price NUMERIC DEFAULT 0.0,
                 last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (symbol, strategy_id)
+                PRIMARY KEY (symbol, strategy_id, environment)
             );
         """)
+        
+        strategies = ['master', 'btc_pure', 'eth_pure', 'sol_pure']
+        symbols = ['BTC/USD', "ETH/USD", "SOL/USD"]
+        environments = ['PAPER', 'LIVE']
+        
+        for env in environments:
+            for strat in strategies:
+                for sym in symbols:
+                    if strat == 'master' or strat.split('_')[0].upper() in sym:
+                        cur.execute("""
+                            INSERT INTO positions (strategy_id, symbol, environment, status, qty, entry_price, initial_margin_usd, sl_price, tp_price)
+                            VALUES
+                                (%s, %s, %s, 'WAITING', 0, 0, 0, 0, 0)
+                            ON CONFLICT (symbol, strategy_id, environment)
+                            DO NOTHING;
+                        """, (strat, sym, env))
 
-        cur.execute("""
-            INSERT INTO positions (strategy_id, symbol, status, qty, entry_price, initial_margin_usd, sl_price, tp_price)
-            VALUES
-                ('master', 'BTC/USD', 'WAITING', 0, 0, 0, 0, 0),
-                ('master', 'ETH/USD', 'WAITING', 0, 0, 0, 0, 0),
-                ('master', 'SOL/USD', 'WAITING', 0, 0, 0, 0, 0),
-                ('btc_pure', 'BTC/USD', 'WAITING', 0, 0, 0, 0, 0),
-                ('eth_pure', 'ETH/USD', 'WAITING', 0, 0, 0, 0, 0),
-                ('sol_pure', 'SOL/USD', 'WAITING', 0, 0, 0, 0, 0)
-            ON CONFLICT (symbol, strategy_id)
-            DO NOTHING;
-        """)
+        
         # 3. Live Market Data table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS live_market_data (
@@ -118,6 +124,7 @@ def bootstrap_database():
             CREATE TABLE IF NOT EXISTS bot_journals (
                 id SERIAL PRIMARY KEY,
                 updated_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                environment VARCHAR(10) NOT NULL,
                 strategy_id VARCHAR(20) NOT NULL,
                 log_level VARCHAR(20) NOT NULL,
                 message TEXT NOT NULL
@@ -129,6 +136,7 @@ def bootstrap_database():
             CREATE TABLE IF NOT EXISTS treasury_state (
                 id SERIAL PRIMARY KEY,
                 updated_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                environment VARCHAR(10) NOT NULL,
                 play_name VARCHAR(50),
                 total_capital NUMERIC(12, 2),
                 reserve NUMERIC(12, 2),

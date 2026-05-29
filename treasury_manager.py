@@ -3,8 +3,9 @@
 import json
 
 class TreasuryManager:
-    def __init__(self, logger, initial_capital=10009.58):
+    def __init__(self, logger, initial_capital=10009.58, environment="PAPER"):
         self.db_log = logger
+        self.environment = environment
         self.total_capital = initial_capital
         self.reserve = initial_capital
         self.reconciliation_light = "YELLOW"
@@ -35,23 +36,18 @@ class TreasuryManager:
     def _save_state_to_db(self, play_name):
         """Writes the new funding strategy to PostgreSQL"""
         sql = """
-            INSERT INTO treasury_state(
-                play_name, total_capital, reserve, allocations
-            ) VALUES (
-                %s, %s, %s, %s
-            );
+            INSERT INTO treasury_state(environment, play_name, total_capital, reserve, allocations)
+            VALUES (%s, %s, %s, %s, %s);
         """
         try:
             conn = self.db_log._get_connection()
             cur = conn.cursor()
             cur.execute(sql, (
+                self.environment,
                 play_name,
                 self.total_capital,
                 self.reserve,
-                self.allocations["btc_pure"],
-                self.allocations["eth_pure"],
-                self.allocations["sol_pure"],
-                self.allocations["master"]
+                json.dumps(self.allocations)
             ))
             conn.commit()
             cur.close()
@@ -100,4 +96,5 @@ class TreasuryManager:
             allocated_total += amount
             
         self.reserve = round(self.total_capital - allocated_total, 2)
+        self._save_state_to_db(play_name)
         return True

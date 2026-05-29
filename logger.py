@@ -15,6 +15,7 @@ class BotLogger:
         self.db_pass = os.getenv('DB_PASS')
         self.db_host = os.getenv('DB_HOST')
         self.db_port = os.getenv('DB_PORT', '5432')
+        self.environment = "PAPER"
 
     def _get_connection(self):
         return psycopg2.connect(
@@ -28,18 +29,18 @@ class BotLogger:
     def _write_log(self, strategy_id, log_level, message):
         # FIXED: Aligned SQL columns with the actual Postgres schema
         sql = """
-            INSERT INTO bot_journals (updated_time, strategy_id, log_level, message)
-            VALUES (CURRENT_TIMESTAMP, %s, %s, %s);
+            INSERT INTO bot_journals (updated_time, environment, strategy_id, log_level, message)
+            VALUES (CURRENT_TIMESTAMP, %s, %s, %s, %s);
         """
         try:
             conn = self._get_connection()
             cur = conn.cursor()
-            cur.execute(sql, (strategy_id, log_level, message))
+            cur.execute(sql, (self.environment, strategy_id, log_level, message))
             conn.commit()
             cur.close()
             conn.close()
             # Still printing to standard output so systemd can capture it if needed
-            print(f"[{log_level}] {strategy_id}: {message}")
+            print(f"[{self.environment}][{log_level}] {strategy_id}: {message}")
         except Exception as e:
             print(f"CRITICAL DB LOGGER ERROR: {e} | Original Message: {message}")
 

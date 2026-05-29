@@ -31,7 +31,7 @@ class KrakenPrivateClient:
         return sigdigest.decode()
         
     def get_live_usd_balance(self):
-        """Fetches the exact real world USD balance"""
+        """Fetches the exact real world balances of all supported assets"""
         if not self.api_key or not self.api_secret:
             print("❌ Auth Error:  Keys are missing from the environment!", flush=True)
             return None
@@ -54,9 +54,17 @@ class KrakenPrivateClient:
                 print(f"Kraken API Error:  {res_json['error']}", flush=True)
                 return None
                 
-            balances = res_json.get("result", {})
-            return float(balances.get("ZUSD", 0.0))
+            raw_balances = res_json.get("result", {})
+            #return float(balances.get("ZUSD", 0.0))
+            clean_balances = {
+                "USD": float(raw_balances.get("ZUSD", 0.0)),
+                "BTC": float(raw_balances.get("XXBT", 0.0)),
+                "ETH": float(raw_balances.get("XETH", 0.0)),
+                "SOL": float(raw_balances.get("SOL", 0.0))
+            }
+            
+            return clean_balances
             
         except Exception as e:
-            print(f"Network Error:  fetch live balance: {e}", flush=True)
+            print(f"Network Error:  fetch live balances: {e}", flush=True)
             return None
